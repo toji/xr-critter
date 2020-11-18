@@ -1,0 +1,443 @@
+<!doctype html>
+<!--
+Copyright 2020 Brandon Jones
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+    <meta name='mobile-web-app-capable' content='yes'>
+    <meta name='apple-mobile-web-app-capable' content='yes'>
+
+    <title>Pet Me!</title>
+
+    <style>
+      html, body {
+        margin: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <script type="module">
+      import * as THREE from './js/third-party/three.js/build/three.module.js';
+      import { GLTFLoader } from './js/third-party/three.js/examples/jsm/loaders/GLTFLoader.js';
+      import { OrbitControls } from './js/third-party/three.js/examples/jsm/controls/OrbitControls.js';
+      import { VRButton } from './js/third-party/three.js/examples/jsm/webxr/VRButton.js';
+      import { XRControllerModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRControllerModelFactory.js';
+      import { XRHandModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRHandModelFactory.js';
+
+      let container;
+      let camera, scene, renderer;
+      let controls;
+      let controllers = [];
+      let hands = [];
+      let xrLighting;
+      let critter;
+      let selecting = false;
+
+      let shaderTime = 0;
+      let gravity = new THREE.Vector3(0, -0.5, 0);
+
+      const FUR_SHELLS = 16;
+      const FUR_LENGTH = 0.75;
+
+      const MAX_COLLIDERS = 50;
+      let colliders = [];
+      for (let i = 0; i < MAX_COLLIDERS; ++i) {
+        colliders.push(new THREE.Vector4(0, 0, 0, 0));
+      }
+
+      let debugMeshes = [];
+      debugMeshes.push(new THREE.Mesh(
+        new THREE.IcosahedronBufferGeometry(1, 3),
+        new THREE.MeshLambertMaterial({
+          color: Math.random() * 0xffffff,
+          transparent: true,
+          opacity: 0.3
+        })));
+
+      async function init() {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+        camera.position.z = 0.7;
+        camera.position.y = 0.2;
+
+        controls = new OrbitControls( camera, container );
+				controls.target.set( 0, 0.2, 0 );
+				controls.update();
+
+        //
+
+        // Try to create a WebGL 2 context if we can, otherwise fall back to WebGL.
+        let canvas = document.createElement('canvas');
+        let gl = null;
+        for (let contextType of ['webgl2', 'webgl', 'experimental-webgl']) {
+          gl = canvas.getContext(contextType, { antialias: true, xrCompatible: true });
+          if (gl) break;
+        }
+
+        //
+        // Start the renderer
+        //
+
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, context: gl });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.physicallyCorrectLights = true;
+        renderer.setClearColor(new THREE.Color(0, 0, 0));
+        renderer.xr.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        //
+        // Fur material
+        //
+
+
+
+        const vertexSrc = `
+          uniform float offset;
+          uniform float globalTime;
+          uniform vec3 gravity;
+          uniform vec4 colliders[${MAX_COLLIDERS}];
+
+          varying vec2 vUv;
+          varying vec3 vNormal;
+
+          const float spacing = ${FUR_LENGTH / FUR_SHELLS};
+
+          void main() {
+            float off = offset;
+            vec3 displacement = vec3(0.0,0.0,0.0);
+            vec3 forceDirection = vec3(0.0,0.0,0.0);
+
+            // "wind"
+            forceDirection.x = sin(globalTime+position.x*0.05) * 0.2;
+            forceDirection.y = cos(globalTime*0.7+position.y*0.04) * 0.2;
+            forceDirection.z = sin(globalTime*0.7+position.y*0.04) * 0.2;
+
+            // "gravity"
+            displacement = gravity + forceDirection;
+
+            for (int i = 0; i < ${MAX_COLLIDERS}; ++i) {
+              vec3 posToCollider = (modelMatrix * vec4(position, 1)).xyz - colliders[i].xyz;
+              float dist = length(posToCollider);
+              if (dist < colliders[i].w) {
+                off *= 0.7;
+                displacement = normalize(posToCollider) * colliders[i].w;
+              }
+            }
+
+            float displacementFactor = pow(off, 1.0);
+
+            vec3 aNormal = normal;
+            aNormal.xyz += displacement*displacementFactor;
+
+            // move outwards depending on offset(layer) and normal+force+gravity
+            vec3 animated = vec3(position.xyz)+(normalize(aNormal)*off*spacing);
+
+            vNormal = normalize(normal*aNormal);
+
+            vUv = uv*20.0;
+
+            vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
+
+            gl_Position = projectionMatrix * mvPosition;
+
+          }`;
+
+        const fragmentSrc = `
+          uniform sampler2D hairMap;
+          uniform sampler2D colorMap;
+          uniform vec3 color;
+          uniform float offset;
+
+          varying vec3 vNormal;
+
+          varying vec2 vUv;
+
+          void main() {
+            vec4 hairColor = texture2D(hairMap, vec2(vUv.s*0.5, vUv.t*0.5));
+            vec4 col = texture2D(colorMap, vec2(vUv.s, vUv.t));
+
+            // discard no hairs + above the max length
+            if (hairColor.a <= 0.0 || hairColor.g < offset) {
+              discard;
+            }
+
+            //gl_FragColor = hairColor;
+
+            // darker towards bottom of the hair
+            float shadow = mix(0.0,hairColor.b*1.2,offset);
+
+            // light
+            vec3 light = vec3(0.1,2.0,0.3);
+            float d = pow(max(0.25,dot(vNormal.xyz, light))*2.75, 1.4);
+
+            gl_FragColor = vec4(color*col.xyz*d*shadow, 1.1-offset);
+          }`;
+
+        function generateFurTexture() {
+          const canvas = document.createElement('canvas');
+          canvas.width = 256;
+          canvas.height = 256;
+          const ctx = canvas.getContext('2d', { alpha: true });
+
+          for (let i = 0; i < 15000; ++i) {
+            // r = hair 1/0
+            // g = length
+            // b = darkness
+            ctx.fillStyle = "rgba(255," + Math.floor(Math.random() * 255) + ","+ Math.floor(Math.random() * 255) +",1)";
+
+            ctx.fillRect((Math.random() * canvas.width), (Math.random() * canvas.height), 2, 2);
+          }
+
+          return new THREE.CanvasTexture(canvas, THREE.UVMapping, THREE.RepeatWrapping, THREE.RepeatWrapping);
+        }
+
+        const furTexture = generateFurTexture();
+
+        // number of "shells" / layers
+        function fuzzify(scene) {
+          const meshShells = new Map();
+
+          scene.traverse((child) => {
+            if (child.isMesh) {
+              const shells = [];
+              for (let i = 0; i < FUR_SHELLS; ++i) {
+                let uniforms = {
+                  color: { value: child.material.color },
+                  hairMap: { value: furTexture },
+                  colorMap: { value: child.material.map },
+                  offset: { value: i/FUR_SHELLS },
+                  globalTime: { value: 1.0 },
+                  gravity: { value: gravity },
+                  colliders: { value: colliders }
+                };
+
+                let furShellMaterial = new THREE.ShaderMaterial({
+                  uniforms: uniforms,
+                  vertexShader: vertexSrc,
+                  fragmentShader: fragmentSrc,
+                  transparent: true,
+                });
+
+
+                const mesh =  new THREE.Mesh(child.geometry, furShellMaterial);
+                mesh.matrixAutoUpdate = false;
+                mesh.frustumCulled = false;
+                shells.push(mesh);
+              }
+
+              meshShells.set(child, shells);
+            }
+          });
+
+          // After traversal is finished, add all of the fur shells to the appropriate base meshes
+          for (const [baseMesh, shells] of meshShells) {
+            for (const shell of shells) {
+              baseMesh.add(shell);
+            }
+          }
+
+          return scene;
+        }
+
+
+
+
+        //
+        // Load the critter mesh
+        //
+
+        const gltfLoader = new GLTFLoader();
+        gltfLoader.setPath('media/meshes/critter/');
+        gltfLoader.load('critter.glb', (gltf) => {
+          critter = fuzzify(gltf.scene);
+          critter.position.x = -0.5;
+          critter.position.y = 0.5;
+          critter.position.z = -0.1;
+          scene.add(critter);
+        });
+
+        //
+        // Add Lighting
+        //
+
+        const light = new THREE.DirectionalLight(0xffaa33);
+        light.position.set(-1, 1, 1);
+        light.intensity = 1.0;
+        scene.add(light);
+
+        const light2 = new THREE.AmbientLight(0x003973);
+        light2.intensity = 1.0;
+        scene.add(light2);
+
+        //
+        // Controller setup
+        //
+
+        const xrControllerModelFactory = new XRControllerModelFactory(gltfLoader);
+        function initController(index) {
+          const grip = renderer.xr.getControllerGrip(index);
+          const model = xrControllerModelFactory.createControllerModel(grip);
+          grip.add(model);
+          scene.add(grip);
+
+          grip.addEventListener('connected', (event) => {
+            /*const xrInputSource = event.data;
+            grip.visible = xrInputSource !== 'gaze';*/
+          });
+
+          grip.addEventListener('disconnected', (event) => {
+            //grip.visible = false;
+          });
+
+          return grip;
+        }
+
+        // Left and right hand
+        controllers[0] = initController(0);
+        controllers[1] = initController(1);
+
+        const handModelFactory = new XRHandModelFactory();
+
+        function initHand(index) {
+          const hand = renderer.xr.getHand(index);
+          const model = handModelFactory.createHandModel(hand, "boxes");
+          hand.add(model);
+          scene.add(hand);
+
+          hand.addEventListener('connected', (event) => {
+            /*const xrInputSource = event.data;
+            hand.visible = xrInputSource !== 'gaze';*/
+          });
+
+          hand.addEventListener('disconnected', (event) => {
+            //hand.visible = false;
+          });
+
+          return hand;
+        }
+
+        hands[0] = initHand(0);
+        hands[1] = initHand(1);
+
+        //
+        // VR button
+        //
+
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        renderer.xr.addEventListener('sessionstart', (session) => {
+
+        });
+
+        renderer.xr.addEventListener('sessionend', () => {
+
+        });
+
+        //
+        // Start frame loop
+        //
+
+        window.addEventListener('resize', onWindowResize, false);
+
+        renderer.setAnimationLoop(render);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      //
+
+      function controllerToCollider(controller, colliderIndex) {
+        colliders[colliderIndex].x = controller.position.x;
+        colliders[colliderIndex].y = controller.position.y;
+        colliders[colliderIndex].z = controller.position.z;
+        colliders[colliderIndex].w = 0.05;
+      }
+
+      function handToCollider(hand, offsetIndex) {
+        const defaultRadius = 0.008;
+        const joints = hand.joints;
+
+        for (let i = 0; i < joints.length; ++i) {
+          const joint = joints[i];
+          if (joint.visible) {
+            colliders[offsetIndex + i].x = joint.position.x;
+            colliders[offsetIndex + i].y = joint.position.y;
+            colliders[offsetIndex + i].z = joint.position.z;
+            colliders[offsetIndex + i].w = (joint.jointRadius || defaultRadius) * 1.5;
+          } else {
+            colliders[offsetIndex + i].w = 0;
+          }
+        }
+      }
+
+      function render() {
+        const time = Date.now();
+
+        /*controllerToCollider(controllers[0], 0);
+        controllerToCollider(controllers[1], 1);*/
+
+        handToCollider(hands[0], 0);
+        handToCollider(hands[1], 25);
+
+        // Render debug meshes for the colliders
+        for (let i = 0; i < colliders.length; ++i) {
+          const collider = colliders[i];
+          if (collider.w > 0) {
+            if (debugMeshes.length <= i) {
+              debugMeshes[i] = debugMeshes[0].clone();
+              scene.add(debugMeshes[i]);
+            }
+            debugMeshes[i].visible = true;
+
+            debugMeshes[i].position.x = collider.x;
+            debugMeshes[i].position.y = collider.y;
+            debugMeshes[i].position.z = collider.z;
+
+            debugMeshes[i].scale.x = collider.w;
+            debugMeshes[i].scale.y = collider.w;
+            debugMeshes[i].scale.z = collider.w;
+          } else {
+            if (debugMeshes.length > i) {
+              debugMeshes[i].visible = false;
+            }
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      init();
+
+    </script>
+  </body>
+</html>
