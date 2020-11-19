@@ -51,13 +51,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let hands = [];
       let xrLighting;
       let critter;
+      let furMeshes = [];
       let selecting = false;
 
       let shaderTime = 0;
-      let gravity = new THREE.Vector3(0, -0.5, 0);
+      let gravity = new THREE.Vector3(0, -1, 0);
 
       const FUR_SHELLS = 16;
-      const FUR_LENGTH = 0.75;
+      const FUR_LENGTH = 0.075;
+
+      const CRITTER_POSITION = new THREE.Vector3(-0.5, 0.5, -0.1);
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -81,11 +84,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         scene = new THREE.Scene();
 
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-        camera.position.z = 0.7;
-        camera.position.y = 0.2;
+        camera.position.x = CRITTER_POSITION.x;
+        camera.position.y = CRITTER_POSITION.y + 0.5;
+        camera.position.z = CRITTER_POSITION.z - 1;
 
         controls = new OrbitControls( camera, container );
-				controls.target.set( 0, 0.2, 0 );
+				controls.target.copy(CRITTER_POSITION);
 				controls.update();
 
         //
@@ -115,21 +119,20 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // Fur material
         //
 
-
+        // Fur shader inspired by http://oos.moxiecode.com/js_webgl/fur/ but heavily modified.
 
         const vertexSrc = `
-          uniform float offset;
+          attribute float instanceOffset;
+
           uniform float globalTime;
           uniform vec3 gravity;
           uniform vec4 colliders[${MAX_COLLIDERS}];
 
+          varying float vOffset;
           varying vec2 vUv;
           varying vec3 vNormal;
 
-          const float spacing = ${FUR_LENGTH / FUR_SHELLS};
-
           void main() {
-            float off = offset;
             vec3 displacement = vec3(0.0,0.0,0.0);
             vec3 forceDirection = vec3(0.0,0.0,0.0);
 
@@ -141,26 +144,25 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
             // "gravity"
             displacement = gravity + forceDirection;
 
-            for (int i = 0; i < ${MAX_COLLIDERS}; ++i) {
-              vec3 posToCollider = (modelMatrix * vec4(position, 1)).xyz - colliders[i].xyz;
-              float dist = length(posToCollider);
-              if (dist < colliders[i].w) {
-                off *= 0.7;
-                displacement = normalize(posToCollider) * colliders[i].w;
-              }
-            }
-
-            float displacementFactor = pow(off, 1.0);
+            float displacementFactor = pow(instanceOffset, 1.0);
 
             vec3 aNormal = normal;
             aNormal.xyz += displacement*displacementFactor;
 
-            // move outwards depending on offset(layer) and normal+force+gravity
-            vec3 animated = vec3(position.xyz)+(normalize(aNormal)*off*spacing);
+            // move outwards depending on instanceOffset(layer) and normal+force+gravity
+            vec3 animated = vec3(position.xyz)+(normalize(aNormal)*instanceOffset*${FUR_LENGTH});
 
+            for (int i = 0; i < ${MAX_COLLIDERS}; ++i) {
+              vec3 posToCollider = (modelMatrix * vec4(animated, 1)).xyz - colliders[i].xyz;
+              float dist = length(posToCollider);
+              if (dist < colliders[i].w) {
+                animated += normalize(posToCollider) * colliders[i].w;
+              }
+            }
+
+            vOffset = instanceOffset;
+            vUv = uv;
             vNormal = normalize(normal*aNormal);
-
-            vUv = uv*20.0;
 
             vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
 
@@ -172,33 +174,33 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           uniform sampler2D hairMap;
           uniform sampler2D colorMap;
           uniform vec3 color;
-          uniform float offset;
 
+          varying float vOffset;
+          varying vec2 vUv;
           varying vec3 vNormal;
 
-          varying vec2 vUv;
-
           void main() {
-            vec4 hairColor = texture2D(hairMap, vec2(vUv.s*0.5, vUv.t*0.5));
+            vec4 hairColor = texture2D(hairMap, vec2(vUv.s*10.0, vUv.t*10.0));
             vec4 col = texture2D(colorMap, vec2(vUv.s, vUv.t));
 
             // discard no hairs + above the max length
-            if (hairColor.a <= 0.0 || hairColor.g < offset) {
+            if (hairColor.a <= 0.0 || hairColor.g < vOffset) {
               discard;
             }
 
             //gl_FragColor = hairColor;
 
             // darker towards bottom of the hair
-            float shadow = mix(0.0,hairColor.b*1.2,offset);
+            float shadow = mix(0.0,hairColor.b*1.2,vOffset);
 
             // light
             vec3 light = vec3(0.1,2.0,0.3);
             float d = pow(max(0.25,dot(vNormal.xyz, light))*2.75, 1.4);
 
-            gl_FragColor = vec4(color*col.xyz*d*shadow, 1.1-offset);
+            gl_FragColor = vec4(color*col.xyz*d*shadow, 1.1-vOffset);
           }`;
 
+        // Replace with a pre-generated texture
         function generateFurTexture() {
           const canvas = document.createElement('canvas');
           canvas.width = 256;
@@ -211,7 +213,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
             // b = darkness
             ctx.fillStyle = "rgba(255," + Math.floor(Math.random() * 255) + ","+ Math.floor(Math.random() * 255) +",1)";
 
-            ctx.fillRect((Math.random() * canvas.width), (Math.random() * canvas.height), 2, 2);
+            ctx.fillRect((Math.random() * canvas.width), (Math.random() * canvas.height), Math.random() * 2, Math.random() * 2);
           }
 
           return new THREE.CanvasTexture(canvas, THREE.UVMapping, THREE.RepeatWrapping, THREE.RepeatWrapping);
@@ -223,50 +225,48 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         function fuzzify(scene) {
           const meshShells = new Map();
 
+          const offsets = [];
+          for (let i = 1; i <= FUR_SHELLS; ++i) {
+            offsets.push(i/FUR_SHELLS);
+          }
+          const offsetAttrib = new THREE.InstancedBufferAttribute(new Float32Array(offsets), 1);
+
           scene.traverse((child) => {
             if (child.isMesh) {
-              const shells = [];
-              for (let i = 0; i < FUR_SHELLS; ++i) {
-                let uniforms = {
+              const furShellGeometry = child.geometry.clone();
+              furShellGeometry.setAttribute('instanceOffset', offsetAttrib);
+
+              const furShellMaterial = new THREE.ShaderMaterial({
+                uniforms: {
                   color: { value: child.material.color },
                   hairMap: { value: furTexture },
                   colorMap: { value: child.material.map },
-                  offset: { value: i/FUR_SHELLS },
                   globalTime: { value: 1.0 },
                   gravity: { value: gravity },
                   colliders: { value: colliders }
-                };
+                },
+                vertexShader: vertexSrc,
+                fragmentShader: fragmentSrc,
+                transparent: true,
+                side: THREE.DoubleSide,
+              });
 
-                let furShellMaterial = new THREE.ShaderMaterial({
-                  uniforms: uniforms,
-                  vertexShader: vertexSrc,
-                  fragmentShader: fragmentSrc,
-                  transparent: true,
-                });
+              const furShellMesh = new THREE.InstancedMesh(furShellGeometry, furShellMaterial, FUR_SHELLS);
+              furShellMesh.matrixAutoUpdate = false;
+              furShellMesh.frustumCulled = false;
+              furMeshes.push(furShellMesh);
 
-
-                const mesh =  new THREE.Mesh(child.geometry, furShellMaterial);
-                mesh.matrixAutoUpdate = false;
-                mesh.frustumCulled = false;
-                shells.push(mesh);
-              }
-
-              meshShells.set(child, shells);
+              meshShells.set(child, furShellMesh);
             }
           });
 
           // After traversal is finished, add all of the fur shells to the appropriate base meshes
-          for (const [baseMesh, shells] of meshShells) {
-            for (const shell of shells) {
-              baseMesh.add(shell);
-            }
+          for (const [baseMesh, furShellMesh] of meshShells) {
+            baseMesh.add(furShellMesh);
           }
 
           return scene;
         }
-
-
-
 
         //
         // Load the critter mesh
@@ -276,9 +276,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         gltfLoader.setPath('media/meshes/critter/');
         gltfLoader.load('critter.glb', (gltf) => {
           critter = fuzzify(gltf.scene);
-          critter.position.x = -0.5;
-          critter.position.y = 0.5;
-          critter.position.z = -0.1;
+          critter.position.copy(CRITTER_POSITION);
           scene.add(critter);
         });
 
@@ -402,6 +400,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       function render() {
         const time = Date.now();
+        for (const mesh of furMeshes) {
+          mesh.material.uniforms.globalTime.value = time / 1000;
+        }
 
         /*controllerToCollider(controllers[0], 0);
         controllerToCollider(controllers[1], 1);*/
