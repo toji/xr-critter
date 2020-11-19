@@ -44,6 +44,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       import { XRControllerModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRControllerModelFactory.js';
       import { XRHandModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRHandModelFactory.js';
 
+      import { FurMaterial } from './js/fur-material.js';
+
       let container;
       let camera, scene, renderer;
       let controls;
@@ -52,13 +54,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let xrLighting;
       let critter;
       let furMeshes = [];
-      let selecting = false;
 
-      let shaderTime = 0;
       let gravity = new THREE.Vector3(0, -1, 0);
-
-      const FUR_SHELLS = 16;
-      const FUR_LENGTH = 0.075;
 
       const CRITTER_POSITION = new THREE.Vector3(-0.5, 0.5, -0.1);
 
@@ -85,11 +82,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
         camera.position.x = CRITTER_POSITION.x;
-        camera.position.y = CRITTER_POSITION.y + 0.5;
+        camera.position.y = CRITTER_POSITION.y + 0.75;
         camera.position.z = CRITTER_POSITION.z - 1;
 
         controls = new OrbitControls( camera, container );
-				controls.target.copy(CRITTER_POSITION);
+        controls.target.copy(CRITTER_POSITION);
+        controls.target.y += 0.25;
 				controls.update();
 
         //
@@ -119,141 +117,27 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // Fur material
         //
 
-        // Fur shader inspired by http://oos.moxiecode.com/js_webgl/fur/ but heavily modified.
-
-        const vertexSrc = `
-          attribute float instanceOffset;
-
-          uniform float globalTime;
-          uniform vec3 gravity;
-          uniform vec4 colliders[${MAX_COLLIDERS}];
-
-          varying float vOffset;
-          varying vec2 vUv;
-          varying vec3 vNormal;
-
-          void main() {
-            vec3 displacement = vec3(0.0,0.0,0.0);
-            vec3 forceDirection = vec3(0.0,0.0,0.0);
-
-            // "wind"
-            forceDirection.x = sin(globalTime+position.x*0.05) * 0.2;
-            forceDirection.y = cos(globalTime*0.7+position.y*0.04) * 0.2;
-            forceDirection.z = sin(globalTime*0.7+position.y*0.04) * 0.2;
-
-            // "gravity"
-            displacement = gravity + forceDirection;
-
-            float displacementFactor = pow(instanceOffset, 1.0);
-
-            vec3 aNormal = normal;
-            aNormal.xyz += displacement*displacementFactor;
-
-            // move outwards depending on instanceOffset(layer) and normal+force+gravity
-            vec3 animated = vec3(position.xyz)+(normalize(aNormal)*instanceOffset*${FUR_LENGTH});
-
-            for (int i = 0; i < ${MAX_COLLIDERS}; ++i) {
-              vec3 posToCollider = (modelMatrix * vec4(animated, 1)).xyz - colliders[i].xyz;
-              float dist = length(posToCollider);
-              if (dist < colliders[i].w) {
-                animated += normalize(posToCollider) * colliders[i].w;
-              }
-            }
-
-            vOffset = instanceOffset;
-            vUv = uv;
-            vNormal = normalize(normal*aNormal);
-
-            vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
-
-            gl_Position = projectionMatrix * mvPosition;
-
-          }`;
-
-        const fragmentSrc = `
-          uniform sampler2D hairMap;
-          uniform sampler2D colorMap;
-          uniform vec3 color;
-
-          varying float vOffset;
-          varying vec2 vUv;
-          varying vec3 vNormal;
-
-          void main() {
-            vec4 hairColor = texture2D(hairMap, vec2(vUv.s*10.0, vUv.t*10.0));
-            vec4 col = texture2D(colorMap, vec2(vUv.s, vUv.t));
-
-            // discard no hairs + above the max length
-            if (hairColor.a <= 0.0 || hairColor.g < vOffset) {
-              discard;
-            }
-
-            //gl_FragColor = hairColor;
-
-            // darker towards bottom of the hair
-            float shadow = mix(0.0,hairColor.b*1.2,vOffset);
-
-            // light
-            vec3 light = vec3(0.1,2.0,0.3);
-            float d = pow(max(0.25,dot(vNormal.xyz, light))*2.75, 1.4);
-
-            gl_FragColor = vec4(color*col.xyz*d*shadow, 1.1-vOffset);
-          }`;
-
-        // Replace with a pre-generated texture
-        function generateFurTexture() {
-          const canvas = document.createElement('canvas');
-          canvas.width = 256;
-          canvas.height = 256;
-          const ctx = canvas.getContext('2d', { alpha: true });
-
-          for (let i = 0; i < 15000; ++i) {
-            // r = hair 1/0
-            // g = length
-            // b = darkness
-            ctx.fillStyle = "rgba(255," + Math.floor(Math.random() * 255) + ","+ Math.floor(Math.random() * 255) +",1)";
-
-            ctx.fillRect((Math.random() * canvas.width), (Math.random() * canvas.height), Math.random() * 2, Math.random() * 2);
-          }
-
-          return new THREE.CanvasTexture(canvas, THREE.UVMapping, THREE.RepeatWrapping, THREE.RepeatWrapping);
-        }
-
-        const furTexture = generateFurTexture();
-
         // number of "shells" / layers
         function fuzzify(scene) {
           const meshShells = new Map();
 
-          const offsets = [];
-          for (let i = 1; i <= FUR_SHELLS; ++i) {
-            offsets.push(i/FUR_SHELLS);
-          }
-          const offsetAttrib = new THREE.InstancedBufferAttribute(new Float32Array(offsets), 1);
-
           scene.traverse((child) => {
             if (child.isMesh) {
               const furShellGeometry = child.geometry.clone();
-              furShellGeometry.setAttribute('instanceOffset', offsetAttrib);
 
-              const furShellMaterial = new THREE.ShaderMaterial({
-                uniforms: {
-                  color: { value: child.material.color },
-                  hairMap: { value: furTexture },
-                  colorMap: { value: child.material.map },
-                  globalTime: { value: 1.0 },
-                  gravity: { value: gravity },
-                  colliders: { value: colliders }
-                },
-                vertexShader: vertexSrc,
-                fragmentShader: fragmentSrc,
-                transparent: true,
-                side: THREE.DoubleSide,
+              const furShellMaterial = new FurMaterial({
+                map: child.material.map,
+                color: child.material.color,
+                colliders: colliders
               });
 
-              const furShellMesh = new THREE.InstancedMesh(furShellGeometry, furShellMaterial, FUR_SHELLS);
+              const furShellMesh = furShellMaterial.createMesh(furShellGeometry);
+
               furShellMesh.matrixAutoUpdate = false;
               furShellMesh.frustumCulled = false;
+              /*scene.add(furShellMesh);
+              child.visible = false;*/
+
               furMeshes.push(furShellMesh);
 
               meshShells.set(child, furShellMesh);
@@ -285,11 +169,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         //
 
         const light = new THREE.DirectionalLight(0xffaa33);
-        light.position.set(-1, 1, 1);
+        light.position.set(-1, 1, -1);
         light.intensity = 1.0;
         scene.add(light);
 
-        const light2 = new THREE.AmbientLight(0x003973);
+        const light2 = new THREE.AmbientLight(0x393939);
         light2.intensity = 1.0;
         scene.add(light2);
 
@@ -399,10 +283,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function render() {
-        const time = Date.now();
+        /*const time = Date.now();
         for (const mesh of furMeshes) {
           mesh.material.uniforms.globalTime.value = time / 1000;
-        }
+        }*/
 
         /*controllerToCollider(controllers[0], 0);
         controllerToCollider(controllers[1], 1);*/
