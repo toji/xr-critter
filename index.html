@@ -38,26 +38,33 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   <body>
     <script type="module">
       import * as THREE from './js/third-party/three.js/build/three.module.js';
+      import { DRACOLoader } from './js/third-party/three.js/examples/jsm/loaders/DRACOLoader.js';
       import { GLTFLoader } from './js/third-party/three.js/examples/jsm/loaders/GLTFLoader.js';
       import { OrbitControls } from './js/third-party/three.js/examples/jsm/controls/OrbitControls.js';
       import { VRButton } from './js/third-party/three.js/examples/jsm/webxr/VRButton.js';
       import { XRControllerModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRControllerModelFactory.js';
       import { XRHandModelFactory } from './js/third-party/three.js/examples/jsm/webxr/XRHandModelFactory.js';
+      import { RGBELoader } from './js/third-party/three.js/examples/jsm/loaders/RGBELoader.js';
 
+      import { XRStats } from './js/xr-stats.js';
       import { FurMaterial } from './js/fur-material.js';
 
       let container;
       let camera, scene, renderer;
       let controls;
+      let stats;
       let controllers = [];
       let hands = [];
       let xrLighting;
       let critter;
       let furMeshes = [];
 
+      let visualizeColliders = false;
+
       let gravity = new THREE.Vector3(0, -1, 0);
 
-      const CRITTER_POSITION = new THREE.Vector3(-0.5, 0.5, -0.1);
+      const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
+      const HOUSE_POSITION = new THREE.Vector3(0.0, 0.0, 0.0);
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -83,7 +90,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
         camera.position.x = CRITTER_POSITION.x;
         camera.position.y = CRITTER_POSITION.y + 0.75;
-        camera.position.z = CRITTER_POSITION.z - 1;
+        camera.position.z = CRITTER_POSITION.z + 1;
 
         controls = new OrbitControls( camera, container );
         controls.target.copy(CRITTER_POSITION);
@@ -113,6 +120,21 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
 
+        stats = new XRStats(renderer);
+
+        // Skybox
+
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+
+        const rgbeLoader = new RGBELoader();
+        rgbeLoader.setDataType(THREE.UnsignedByteType);
+        rgbeLoader.load('./media/textures/skybox.hdr', (texture) => {
+          const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+          scene.background = envMap;
+          scene.environment = envMap;
+        });
+
         //
         // Fur material
         //
@@ -140,6 +162,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
               furMeshes.push(furShellMesh);
 
+              let newMaterial = new THREE.MeshLambertMaterial({
+                map: child.material.map,
+                alphaMap: child.material.alphaMap,
+                transparent: child.material.transparent,
+                side: child.material.side,
+              });
+              child.material = newMaterial;
+
               meshShells.set(child, furShellMesh);
             }
           });
@@ -157,11 +187,36 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         //
 
         const gltfLoader = new GLTFLoader();
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setWorkerLimit(1);
+        dracoLoader.setDecoderPath('./js/third-party/three.js/examples/js/libs/draco/gltf/');
+        gltfLoader.setDRACOLoader(dracoLoader);
+
         gltfLoader.setPath('media/meshes/critter/');
         gltfLoader.load('critter.glb', (gltf) => {
           critter = fuzzify(gltf.scene);
           critter.position.copy(CRITTER_POSITION);
+          critter.rotation.y = Math.PI;
           scene.add(critter);
+        });
+
+        gltfLoader.setPath('media/meshes/forest-house/');
+        gltfLoader.load('forest-house.glb', (gltf) => {
+          const house = gltf.scene;
+          house.position.copy(HOUSE_POSITION);
+          house.traverse((child) => {
+            if (child.isMesh) {
+              let newMaterial = new THREE.MeshLambertMaterial({
+                map: child.material.map,
+                //normalMap: child.material.normalMap,
+                alphaMap: child.material.alphaMap,
+                transparent: child.material.transparent,
+                side: child.material.side,
+              });
+              child.material = newMaterial;
+            }
+          });
+          scene.add(gltf.scene);
         });
 
         //
@@ -204,11 +259,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         controllers[0] = initController(0);
         controllers[1] = initController(1);
 
-        const handModelFactory = new XRHandModelFactory();
+        const handModelFactory = new XRHandModelFactory().setPath( "./js/third-party/three.js/examples/models/fbx/" );
 
         function initHand(index) {
           const hand = renderer.xr.getHand(index);
-          const model = handModelFactory.createHandModel(hand, "boxes");
+          const model = handModelFactory.createHandModel(hand, "oculus");
           hand.add(model);
           scene.add(hand);
 
@@ -234,11 +289,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         document.body.appendChild(VRButton.createButton(renderer));
 
         renderer.xr.addEventListener('sessionstart', (session) => {
-
+          stats.drawOrthographic = false;
+          scene.remove(stats);
+          hands[0].add(stats);
         });
 
         renderer.xr.addEventListener('sessionend', () => {
-
+          stats.drawOrthographic = true;
+          hands[0].remove(stats);
+          scene.add(stats);
         });
 
         //
@@ -302,7 +361,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
               debugMeshes[i] = debugMeshes[0].clone();
               scene.add(debugMeshes[i]);
             }
-            debugMeshes[i].visible = true;
+            debugMeshes[i].visible = visualizeColliders;
 
             debugMeshes[i].position.x = collider.x;
             debugMeshes[i].position.y = collider.y;
@@ -319,6 +378,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         }
 
         renderer.render(scene, camera);
+
+        if (stats) { stats.update(); }
       }
 
       init();

@@ -1,4 +1,4 @@
-//import { FBXLoader } from '../loaders/FBXLoader.js';
+import { FBXLoader } from '../loaders/FBXLoader.js';
 
 class XRHandOculusMeshModel {
 
@@ -8,7 +8,7 @@ class XRHandOculusMeshModel {
 		this.handModel = handModel;
 
 		this.bones = [];
-		//const loader = new FBXLoader();
+		const loader = new FBXLoader();
 		const low = options && options.model === 'lowpoly' ? '_low' : '';
 
 		loader.setPath( path );

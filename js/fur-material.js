@@ -92,7 +92,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           uniform sampler2D hairMap;
         `)
         .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
-          vec4 hairColor = texture2D(hairMap, vec2(vUv.s*10.0, vUv.t*10.0));
+          vec4 hairColor = texture2D(hairMap, vUv*10.0);
           // discard no hairs + above the max length
           if (hairColor.a <= 0.0 || hairColor.g < vOffset) {
             discard;
