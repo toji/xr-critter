@@ -81,11 +81,11 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           float displacementFactor = pow(instanceOffset, 1.0);
 
           vec3 furNormal = normal;
-          furNormal += displacement*displacementFactor;
+          //furNormal += normalize(displacement*displacementFactor);
 
           float shellOffset = instanceOffset * furLength;
 
-          vec3 furVertex = transformed + normalize(furNormal) * shellOffset;
+          vec3 furVertex = transformed + furNormal * shellOffset;
 
           #ifdef COLLIDERS
 
@@ -96,6 +96,12 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
             vec3 colliderLocal = (invModelMatrix * vec4(colliders[i].xyz, 1.0)).xyz;
             float colliderRadius = colliders[i].w;
 
+            // Project the collider onto the fur normal.
+            vec3 ap = colliderLocal-transformed;
+            vec3 ab = furVertex-transformed;
+            vec3 colliderProjected = transformed + dot(ap,ab)/dot(ab,ab) * ab;
+            vec3 pushDir = colliderProjected - colliderLocal;
+
             // Get the vector from the collider center to the fur shell vertex.
             vec3 posToCollider = furVertex - colliderLocal;
 
@@ -103,7 +109,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
             float dist = length(posToCollider);
             if (dist < colliderRadius) {
               // Then move the vertex just outside the collider.
-              furVertex += normalize(posToCollider) * (colliderRadius - dist);
+              furVertex += normalize(pushDir) * (colliderRadius - dist);
             }
           }
 
