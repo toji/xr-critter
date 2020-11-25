@@ -59,7 +59,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let critter;
       let furMeshes = [];
 
-      let visualizeColliders = false;
+      let visualizeColliders = true;
 
       let gravity = new THREE.Vector3(0, -1, 0);
 
@@ -132,7 +132,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         rgbeLoader.load('./media/textures/skybox.hdr', (texture) => {
           const envMap = pmremGenerator.fromEquirectangular(texture).texture;
           scene.background = envMap;
-          scene.environment = envMap;
+          //scene.environment = envMap;
         });
 
         //
@@ -328,8 +328,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         const defaultRadius = 0.008;
         const joints = hand.joints;
 
-        for (let i = 0; i < joints.length; ++i) {
-          const joint = joints[i];
+        for (let i = 0; i < joints.length-1; ++i) {
+          const joint = joints[i+1];
           if (joint.visible) {
             colliders[offsetIndex + i].x = joint.position.x;
             colliders[offsetIndex + i].y = joint.position.y;
@@ -370,10 +370,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
             debugMeshes[i].scale.x = collider.w;
             debugMeshes[i].scale.y = collider.w;
             debugMeshes[i].scale.z = collider.w;
-          } else {
-            if (debugMeshes.length > i) {
-              debugMeshes[i].visible = false;
-            }
           }
         }
 

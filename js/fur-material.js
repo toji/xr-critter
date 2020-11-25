@@ -1,8 +1,8 @@
 import  * as THREE from "./third-party/three.js/build/three.module.js";
 
 const FUR_SHELLS = 16;
-const FUR_LENGTH = 0.05;
-const GRAVITY = new THREE.Vector3(0, -1, 0);
+const FUR_LENGTH = 0.03;
+const GRAVITY = new THREE.Vector3(0, -0.75, 0);
 
 const offsets = [];
 for (let i = 1; i <= FUR_SHELLS; ++i) {
@@ -23,7 +23,7 @@ function getFurTexture() {
     // r = hair 1/0
     // g = length
     // b = darkness
-    ctx.fillStyle = "rgba(255," + Math.floor(Math.random() * 255) + ","+ Math.floor(Math.random() * 255) +",1)";
+    ctx.fillStyle = "rgba(255," + Math.floor(Math.random() * 127 + 127) + ","+ Math.floor(Math.random() * 255) +",1)";
 
     ctx.fillRect((Math.random() * canvas.width), (Math.random() * canvas.height), Math.random() * 2, Math.random() * 2);
   }
@@ -39,15 +39,23 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
     const uniforms = {
       hairMap: { value: getFurTexture() },
       gravity: { value: GRAVITY },
-      colliders: { value: options.colliders },
+      furLength: { value: FUR_LENGTH }
     };
 
-    const colliderCount = options.colliders.length;
+    if (options.colliders) {
+      uniforms.colliders = { value: options.colliders };
+    }
+
+    const colliderCount = options.colliders ? options.colliders.length : 0;
 
     this.onBeforeCompile = (shader, renderer) => {
       for (const uniformName of Object.keys(uniforms)) {
         shader.uniforms[uniformName] = uniforms[uniformName];
       }
+
+      shader.defines = {
+        COLLIDERS: !!options.colliders
+      };
 
       // Fur shader inspired by http://oos.moxiecode.com/js_webgl/fur/
       shader.vertexShader = shader.vertexShader
@@ -56,8 +64,11 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           attribute float instanceOffset;
           varying float vOffset;
 
+          uniform float furLength;
           uniform vec3 gravity;
+          #ifdef COLLIDERS
           uniform vec4 colliders[${colliderCount}];
+          #endif
         `)
         .replace('#include <skinning_vertex>', `
           #include <skinning_vertex>
@@ -72,15 +83,33 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           vec3 furNormal = normal;
           furNormal += displacement*displacementFactor;
 
-          transformed += normalize(furNormal) * instanceOffset * ${FUR_LENGTH};
+          float shellOffset = instanceOffset * furLength;
+
+          vec3 furVertex = transformed + normalize(furNormal) * shellOffset;
+
+          #ifdef COLLIDERS
+
+          mat4 invModelMatrix = inverse(modelMatrix);
 
           for (int i = 0; i < ${colliderCount}; ++i) {
-            vec3 posToCollider = (modelMatrix * vec4(transformed, 1)).xyz - colliders[i].xyz;
+            // Transform colliders into local model space.
+            vec3 colliderLocal = (invModelMatrix * vec4(colliders[i].xyz, 1.0)).xyz;
+            float colliderRadius = colliders[i].w;
+
+            // Get the vector from the collider center to the fur shell vertex.
+            vec3 posToCollider = furVertex - colliderLocal;
+
+            // If the distance between the vertex and the collider is less than the radius...
             float dist = length(posToCollider);
-            if (dist < colliders[i].w) {
-              transformed += normalize(posToCollider) * colliders[i].w;
+            if (dist < colliderRadius) {
+              // Then move the vertex just outside the collider.
+              furVertex += normalize(posToCollider) * (colliderRadius - dist);
             }
           }
+
+          #endif
+
+          transformed = furVertex;
 
           vOffset = instanceOffset;
         `);
@@ -98,7 +127,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
             discard;
           }
           float furShadow = mix(0.5,hairColor.b*1.2,vOffset);
-          vec4 diffuseColor = vec4( diffuse * furShadow, opacity );
+          vec4 diffuseColor = vec4(diffuse * furShadow, opacity);
         `);
     };
   }
