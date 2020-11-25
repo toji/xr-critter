@@ -38,6 +38,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
 
     const uniforms = {
       hairMap: { value: getFurTexture() },
+      furLengthMap: { value: options.furLengthMap },
       gravity: { value: GRAVITY },
       furLength: { value: FUR_LENGTH }
     };
@@ -72,13 +73,6 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
         `)
         .replace('#include <skinning_vertex>', `
           #include <skinning_vertex>
-          vec3 displacement = vec3(0.0,0.0,0.0);
-          vec3 forceDirection = vec3(0.0,0.0,0.0);
-
-          // "gravity"
-          displacement = gravity + forceDirection;
-
-          float displacementFactor = pow(instanceOffset, 1.0);
 
           vec3 furNormal = normal;
 
@@ -93,7 +87,8 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           for (int i = 0; i < ${colliderCount}; ++i) {
             // Transform colliders into local model space.
             vec3 colliderLocal = (invModelMatrix * vec4(colliders[i].xyz, 1.0)).xyz;
-            float colliderRadius = colliders[i].w;
+            float colliderInnerRadius = colliders[i].w;
+            float colliderOuterRadius = colliders[i].w * 1.5;
 
             // Project the collider onto the fur normal.
             vec3 ap = colliderLocal-transformed;
@@ -104,11 +99,17 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
             // Get the vector from the collider center to the fur shell vertex.
             vec3 posToCollider = furVertex - colliderLocal;
 
-            // If the distance between the vertex and the collider is less than the radius...
+            // Find the distance from the collider to the vertex
             float dist = length(posToCollider);
-            if (dist < colliderRadius) {
-              // Then move the vertex just outside the collider.
-              furVertex += normalize(pushDir) * (colliderRadius - dist);
+            if (dist < colliderInnerRadius) {
+              // If it's directly under the collider gradually squash the vertex down.
+              // This prevents some of the appearance of fair rotating under your fingers.
+              float displacementAmount = dist / colliderInnerRadius;
+              furVertex += normalize(pushDir) * (colliderInnerRadius - dist) * displacementAmount;
+              shellOffset *= displacementAmount;
+            } else if (dist < colliderOuterRadius) {
+              // If it's near the collider push it out to simulate the fur being pushed aside.
+              furVertex += normalize(pushDir) * (colliderOuterRadius - dist);
             }
           }
 
@@ -117,8 +118,13 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
 
           #endif
 
-          // Account for gravity, etc.
-          furNormal += displacement*displacementFactor;
+          vec3 displacement = vec3(0.0,0.0,0.0);
+          vec3 forceDirection = vec3(0.0,0.0,0.0);
+          float displacementFactor = pow(instanceOffset, 1.0);
+
+          // Account for "gravity", etc.
+          displacement = gravity + forceDirection;
+          furNormal += displacement * displacementFactor;
 
           transformed = transformed + normalize(furNormal) * shellOffset;
 
@@ -130,11 +136,13 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           #include <common>
           varying float vOffset;
           uniform sampler2D hairMap;
+          uniform sampler2D furLengthMap;
         `)
         .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
           vec4 hairColor = texture2D(hairMap, vUv*10.0);
+          float furLength = hairColor.g * texture2D(furLengthMap, vUv).g;
           // discard no hairs + above the max length
-          if (hairColor.a <= 0.0 || hairColor.g < vOffset) {
+          if (hairColor.a <= 0.0 || furLength < vOffset) {
             discard;
           }
           float furShadow = mix(0.5,hairColor.b*1.2,vOffset);

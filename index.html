@@ -60,7 +60,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let furMeshes = [];
 
       let visualizeColliders = false;
-
       let gravity = new THREE.Vector3(0, -1, 0);
 
       const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
@@ -150,6 +149,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
               const furShellMaterial = new FurMaterial({
                 map: child.material.map,
                 color: child.material.color,
+                furLengthMap: child.material.roughnessMap,
                 colliders: colliders
               });
 
@@ -334,7 +334,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
             colliders[offsetIndex + i].x = joint.position.x;
             colliders[offsetIndex + i].y = joint.position.y;
             colliders[offsetIndex + i].z = joint.position.z;
-            colliders[offsetIndex + i].w = (joint.jointRadius || defaultRadius) * 1.5;
+            colliders[offsetIndex + i].w = (joint.jointRadius || defaultRadius) * 1.2;
           } else {
             colliders[offsetIndex + i].w = 0;
           }
