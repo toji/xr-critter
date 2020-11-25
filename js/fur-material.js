@@ -81,13 +81,12 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
           float displacementFactor = pow(instanceOffset, 1.0);
 
           vec3 furNormal = normal;
-          //furNormal += normalize(displacement*displacementFactor);
 
           float shellOffset = instanceOffset * furLength;
 
-          vec3 furVertex = transformed + furNormal * shellOffset;
-
           #ifdef COLLIDERS
+
+          vec3 furVertex = transformed + furNormal * shellOffset;
 
           mat4 invModelMatrix = inverse(modelMatrix);
 
@@ -113,9 +112,15 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
             }
           }
 
+          // Compute a new fur normal
+          furNormal = normalize(furVertex - transformed);
+
           #endif
 
-          transformed = furVertex;
+          // Account for gravity, etc.
+          furNormal += displacement*displacementFactor;
+
+          transformed = transformed + normalize(furNormal) * shellOffset;
 
           vOffset = instanceOffset;
         `);
