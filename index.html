@@ -63,7 +63,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let gravity = new THREE.Vector3(0, -1, 0);
 
       const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
-      const HOUSE_POSITION = new THREE.Vector3(0.0, 0.0, 0.0);
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -203,12 +202,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         gltfLoader.setPath('media/meshes/forest-house/');
         gltfLoader.load('forest-house.glb', (gltf) => {
           const house = gltf.scene;
-          house.position.copy(HOUSE_POSITION);
           house.traverse((child) => {
             if (child.isMesh) {
               let newMaterial = new THREE.MeshLambertMaterial({
                 map: child.material.map,
-                //normalMap: child.material.normalMap,
                 alphaMap: child.material.alphaMap,
                 transparent: child.material.transparent,
                 side: child.material.side,
