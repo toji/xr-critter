@@ -243,8 +243,31 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         const xrControllerModelFactory = new XRControllerModelFactory(gltfLoader);
         function initController(index) {
           const grip = renderer.xr.getControllerGrip(index);
-          const model = xrControllerModelFactory.createControllerModel(grip);
-          grip.add(model);
+          //const model = xrControllerModelFactory.createControllerModel(grip);
+          //grip.add(model);
+
+          gltfLoader.setPath('media/meshes/brush/');
+          gltfLoader.load('brush.glb', (gltf) => {
+            gltf.scene.traverse((child) => {
+              if (child.isMesh) {
+                child.material.alphaTest = 0.3;
+              }
+            });
+            grip.add(gltf.scene);
+          });
+
+          let colliderA = new THREE.Object3D();
+          colliderA.position.z = -0.125;
+
+          let colliderB = new THREE.Object3D();
+          colliderB.position.z = -0.175;
+
+          grip.add(colliderA);
+          grip.colliderA = colliderA;
+
+          grip.add(colliderB);
+          grip.colliderB = colliderB;
+
           scene.add(grip);
 
           grip.addEventListener('connected', (event) => {
@@ -321,14 +344,26 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       //
 
-      function controllerToCollider(controller, colliderIndex) {
-        colliders[colliderIndex].x = controller.position.x;
-        colliders[colliderIndex].y = controller.position.y;
-        colliders[colliderIndex].z = controller.position.z;
-        colliders[colliderIndex].w = 0.05;
+      function controllerToCollider(controller, offsetIndex) {
+        let position = new THREE.Vector3();
+
+        controller.colliderA.getWorldPosition(position);
+        colliders[offsetIndex].x = position.x;
+        colliders[offsetIndex].y = position.y;
+        colliders[offsetIndex].z = position.z;
+        colliders[offsetIndex].w = 0.03;
+
+        controller.colliderB.getWorldPosition(position);
+        colliders[offsetIndex+1].x = position.x;
+        colliders[offsetIndex+1].y = position.y;
+        colliders[offsetIndex+1].z = position.z;
+        colliders[offsetIndex+1].w = 0.03;
       }
 
       function handToCollider(hand, offsetIndex) {
+        if (!hand.visible) {
+          return;
+        }
         const defaultRadius = 0.008;
         const joints = hand.joints;
 
@@ -351,29 +386,31 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           mesh.material.uniforms.globalTime.value = time / 1000;
         }*/
 
-        /*controllerToCollider(controllers[0], 0);
-        controllerToCollider(controllers[1], 1);*/
+        controllerToCollider(controllers[0], 0);
+        controllerToCollider(controllers[1], 25);
 
         handToCollider(hands[0], 0);
         handToCollider(hands[1], 25);
 
         // Render debug meshes for the colliders
-        for (let i = 0; i < colliders.length; ++i) {
-          const collider = colliders[i];
-          if (collider.w > 0) {
-            if (debugMeshes.length <= i) {
-              debugMeshes[i] = debugMeshes[0].clone();
-              scene.add(debugMeshes[i]);
+        if (visualizeColliders) {
+          for (let i = 0; i < colliders.length; ++i) {
+            const collider = colliders[i];
+            if (collider.w > 0) {
+              if (debugMeshes.length <= i) {
+                debugMeshes[i] = debugMeshes[0].clone();
+                scene.add(debugMeshes[i]);
+              }
+              debugMeshes[i].visible = visualizeColliders;
+
+              debugMeshes[i].position.x = collider.x;
+              debugMeshes[i].position.y = collider.y;
+              debugMeshes[i].position.z = collider.z;
+
+              debugMeshes[i].scale.x = collider.w;
+              debugMeshes[i].scale.y = collider.w;
+              debugMeshes[i].scale.z = collider.w;
             }
-            debugMeshes[i].visible = visualizeColliders;
-
-            debugMeshes[i].position.x = collider.x;
-            debugMeshes[i].position.y = collider.y;
-            debugMeshes[i].position.z = collider.z;
-
-            debugMeshes[i].scale.x = collider.w;
-            debugMeshes[i].scale.y = collider.w;
-            debugMeshes[i].scale.z = collider.w;
           }
         }
 
