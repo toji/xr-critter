@@ -61,14 +61,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       let visualizeColliders = false;
       let isWebGL2 = false;
-      let gravity = new THREE.Vector3(0, -1, 0);
+      let forceDirection = new THREE.Vector3(0, 0, 0);
 
       const audioLoader = new THREE.AudioLoader();
       const listener = new THREE.AudioListener();
       let backgroundMusic;
 
       const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
-      const CRITTER_BOUNCE_SPEED = 500;
+      const CRITTER_BOUNCE_SPEED = 300;
+      const CRITTER_BOUNCE_FORCE = 0.25;
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -162,6 +163,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
                 map: child.material.map,
                 color: child.material.color,
                 furLengthMap: child.material.roughnessMap,
+                forceDirection: forceDirection,
                 colliders: isWebGL2 ? colliders : null
               });
 
@@ -407,14 +409,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       function render() {
         const time = Date.now();
-        /*for (const mesh of furMeshes) {
-          mesh.material.uniforms.globalTime.value = time / 1000;
-        }*/
+
 
         // Make the critter do a little happy bounce.
         if (critter) {
           critter.scale.y = Math.sin(time / CRITTER_BOUNCE_SPEED) * 0.02 + 0.99;
           critter.rotation.z = Math.sin(time / (CRITTER_BOUNCE_SPEED * 2.0) + 1) * 0.05;
+
+          forceDirection.y = -Math.sin(time / CRITTER_BOUNCE_SPEED) * CRITTER_BOUNCE_FORCE;
+          forceDirection.x = Math.sin(time / (CRITTER_BOUNCE_SPEED * 2.0) + 1)  * CRITTER_BOUNCE_FORCE;
         }
 
         controllerToCollider(controllers[0], 0);

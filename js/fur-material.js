@@ -40,6 +40,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
       hairMap: { value: getFurTexture() },
       furLengthMap: { value: options.furLengthMap },
       gravity: { value: GRAVITY },
+      forceDirection: { value: options.forceDirection },
       furLength: { value: FUR_LENGTH }
     };
 
@@ -67,6 +68,7 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
 
           uniform float furLength;
           uniform vec3 gravity;
+          uniform vec3 forceDirection;
           #ifdef COLLIDERS
           uniform vec4 colliders[${colliderCount}];
           #endif
@@ -118,12 +120,9 @@ export class FurMaterial extends THREE.MeshLambertMaterial {
 
           #endif
 
-          vec3 displacement = vec3(0.0,0.0,0.0);
-          vec3 forceDirection = vec3(0.0,0.0,0.0);
-          float displacementFactor = pow(instanceOffset, 1.0);
-
           // Account for "gravity", etc.
-          displacement = gravity + forceDirection;
+          vec3 displacement = gravity + forceDirection;
+          float displacementFactor = pow(instanceOffset, 1.0);
           furNormal += displacement * displacementFactor;
 
           transformed = transformed + normalize(furNormal) * shellOffset;
