@@ -63,7 +63,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let isWebGL2 = false;
       let gravity = new THREE.Vector3(0, -1, 0);
 
+      const audioLoader = new THREE.AudioLoader();
+      const listener = new THREE.AudioListener();
+      let backgroundMusic;
+
       const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
+      const CRITTER_BOUNCE_SPEED = 500;
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -90,6 +95,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         camera.position.x = CRITTER_POSITION.x;
         camera.position.y = CRITTER_POSITION.y + 0.75;
         camera.position.z = CRITTER_POSITION.z + 1;
+
+        camera.add(listener);
 
         controls = new OrbitControls( camera, container );
         controls.target.copy(CRITTER_POSITION);
@@ -319,12 +326,30 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           stats.drawOrthographic = false;
           scene.remove(stats);
           hands[0].add(stats);
+
+          // Start background music once the user enters VR.
+          if (!backgroundMusic) {
+            backgroundMusic = new THREE.Audio(listener);
+            audioLoader.load('media/music/telepathy-for-beginners.mp3', (buffer) => {
+              backgroundMusic.setBuffer(buffer);
+              backgroundMusic.setLoop(true);
+              backgroundMusic.setVolume(0.5);
+              backgroundMusic.play();
+            });
+          } else {
+            backgroundMusic.play();
+          }
         });
 
         renderer.xr.addEventListener('sessionend', () => {
           stats.drawOrthographic = true;
           hands[0].remove(stats);
           scene.add(stats);
+
+          // Stop background music once the user exits VR.
+          if (backgroundMusic) {
+            backgroundMusic.stop();
+          }
         });
 
         //
@@ -381,10 +406,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function render() {
-        /*const time = Date.now();
-        for (const mesh of furMeshes) {
+        const time = Date.now();
+        /*for (const mesh of furMeshes) {
           mesh.material.uniforms.globalTime.value = time / 1000;
         }*/
+
+        // Make the critter do a little happy bounce.
+        if (critter) {
+          critter.scale.y = Math.sin(time / CRITTER_BOUNCE_SPEED) * 0.02 + 0.99;
+          critter.rotation.z = Math.sin(time / (CRITTER_BOUNCE_SPEED * 2.0) + 1) * 0.05;
+        }
 
         controllerToCollider(controllers[0], 0);
         controllerToCollider(controllers[1], 25);
