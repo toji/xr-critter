@@ -28,14 +28,101 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
     <title>Pet Me!</title>
 
+    <link rel="manifest" href="manifest.json">
+
     <style>
       html, body {
         margin: 0;
+      }
+
+      body {
+        background-color: black;
+        font: 1rem/1.4 -apple-system, BlinkMacSystemFont,
+          Segoe UI, Roboto, Oxygen,
+          Ubuntu, Cantarell, Fira Sans,
+          Droid Sans, Helvetica Neue, sans-serif;
+        color: #DEDEDE;
+      }
+
+      a {
+        color:rgb(43, 248, 255)
+      }
+
+      footer {
+        position: absolute;
+        background-color: rgba(0, 0, 0, 0.25);
+        bottom: 0px;
+        left: 0px;
+        right: 0px;
+        font-size: 0.8em;
+        border-top: 1px solid grey;
+        padding: 1em;
+        margin: 0;
+        height: 4em;
+        z-index: 3;
+        background-color:
+      }
+
+      .webxr-experience {
+        width: 50%;
+        float: left;
+      }
+
+      .webxr-experience::before {
+        float: left;
+        padding-right: 0.5em;
+        content: url('./media/textures/webxr-32.png');
+      }
+
+      .source-link {
+        display: block;
+        margin-bottom: 0.75em;
+      }
+
+      .credits {
+        text-align: right;
+        float: right;
+        width: 50%;
+      }
+
+      .credits ul {
+        list-style: none;
+        padding: 0;
+        margin-top: 0;
+      }
+
+      .credits li {
+        display: inline;
+      }
+
+      .credits li:not(:last-child)::after {
+        padding-left: 0.25em;
+        content: '·';
       }
     </style>
   </head>
 
   <body>
+    <footer>
+      <div class='webxr-experience'>
+        This is a<br/>
+        <a href='https://immersiveweb.dev/'>WebXR Experience</a>
+      </div>
+
+      <div class='credits'>
+        <a class='source-link' href='https://github.com/toji/xr-critter'>
+          Get the source on GitHub
+        </a>
+        <!--Brought to you with the help of:
+        <ul>
+          <li><a href='https://threejs.org/'>Three.js</a></li>
+          <li><a href='https://www.khronos.org/gltf/'>glTF</a></li>
+          <li><a href='https://google.github.io/draco/'>Draco</a></li>
+          <li><a href='http://workshop.chromeexperiments.com/examples/gui/'>dat.gui</a></li>
+        </ul-->
+      </div>
+    </footer>
+
     <script type="module">
       import * as THREE from './js/third-party/three.js/build/three.module.js';
       import { DRACOLoader } from './js/third-party/three.js/examples/jsm/loaders/DRACOLoader.js';
@@ -69,7 +156,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       const CRITTER_POSITION = new THREE.Vector3(0, 0.55, -0.9);
       const CRITTER_BOUNCE_SPEED = 300;
-      const CRITTER_BOUNCE_FORCE = 0.25;
+      const CRITTER_BOUNCE_FORCE = 0.12;
 
       const MAX_COLLIDERS = 50;
       let colliders = [];
@@ -100,9 +187,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         camera.add(listener);
 
         controls = new OrbitControls( camera, container );
+        controls.minDistance = 0.5;
+        controls.maxDistance = 2.5;
         controls.target.copy(CRITTER_POSITION);
         controls.target.y += 0.25;
-				controls.update();
+        controls.update();
 
         //
 
@@ -133,6 +222,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         container.appendChild(renderer.domElement);
 
         stats = new XRStats(renderer);
+        stats.drawOrthographic = false;
 
         // Skybox
 
@@ -322,7 +412,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // VR button
         //
 
-        document.body.appendChild(VRButton.createButton(renderer));
+        const footer = document.getElementsByTagName('footer')[0];
+        footer.appendChild(VRButton.createButton(renderer));
 
         renderer.xr.addEventListener('sessionstart', (session) => {
           stats.drawOrthographic = false;
@@ -410,12 +501,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       function render() {
         const time = Date.now();
 
-
         // Make the critter do a little happy bounce.
         if (critter) {
           critter.scale.y = Math.sin(time / CRITTER_BOUNCE_SPEED) * 0.02 + 0.99;
           critter.rotation.z = Math.sin(time / (CRITTER_BOUNCE_SPEED * 2.0) + 1) * 0.05;
 
+          // Apply a gentle force to the fur in the opposite direction to fake a bit of momentum.
           forceDirection.y = -Math.sin(time / CRITTER_BOUNCE_SPEED) * CRITTER_BOUNCE_FORCE;
           forceDirection.x = Math.sin(time / (CRITTER_BOUNCE_SPEED * 2.0) + 1)  * CRITTER_BOUNCE_FORCE;
         }

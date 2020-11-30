@@ -2,7 +2,7 @@ import  * as THREE from "./third-party/three.js/build/three.module.js";
 
 const FUR_SHELLS = 16;
 const FUR_LENGTH = 0.03;
-const GRAVITY = new THREE.Vector3(0, -0.75, 0);
+const GRAVITY = new THREE.Vector3(0, -0.6, 0);
 
 const offsets = [];
 for (let i = 1; i <= FUR_SHELLS; ++i) {
