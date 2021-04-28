@@ -156,7 +156,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       const CRITTER_BOUNCE_SPEED = 300;
       const CRITTER_BOUNCE_FORCE = 0.12;
 
-      const MAX_COLLIDERS = 50;
+      const MAX_COLLIDERS = 52;
       let colliders = [];
       for (let i = 0; i < MAX_COLLIDERS; ++i) {
         colliders.push(new THREE.Vector4(0, 0, 0, 0));
@@ -383,11 +383,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         controllers[0] = initController(0);
         controllers[1] = initController(1);
 
-        const handModelFactory = new XRHandModelFactory().setPath( "./js/third-party/three.js/examples/models/fbx/" );
+        const handModelFactory = new XRHandModelFactory();
 
         function initHand(index) {
           const hand = renderer.xr.getHand(index);
-          const model = handModelFactory.createHandModel(hand, "oculus");
+          const model = handModelFactory.createHandModel(hand, "mesh");
           hand.add(model);
           scene.add(hand);
 
@@ -483,8 +483,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         const defaultRadius = 0.008;
         const joints = hand.joints;
 
-        for (let i = 0; i < joints.length-1; ++i) {
-          const joint = joints[i+1];
+        let i = 0;
+        for (const jointName in joints) {
+          const joint = joints[jointName];
           if (joint.visible) {
             colliders[offsetIndex + i].x = joint.position.x;
             colliders[offsetIndex + i].y = joint.position.y;
@@ -493,7 +494,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           } else {
             colliders[offsetIndex + i].w = 0;
           }
+          ++i;
         }
+        return offsetIndex+i;
       }
 
       function render() {
@@ -512,8 +515,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         controllerToCollider(controllers[0], 0);
         controllerToCollider(controllers[1], 25);
 
-        handToCollider(hands[0], 0);
-        handToCollider(hands[1], 25);
+        let offset = handToCollider(hands[0], 0);
+        handToCollider(hands[1], offset);
 
         // Render debug meshes for the colliders
         if (visualizeColliders) {
